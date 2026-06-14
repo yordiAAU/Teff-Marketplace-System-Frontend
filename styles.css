@@ -1,0 +1,29 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:wght@600;700&display=swap");
+
+    @tailwind base;
+    @tailwind components;
+    @tailwind utilities;
+
+    @layer base {
+      :root {
+        --background: 0 0% 100%;
+        --foreground: 222.2 84% 4.9%;
+        --primary: 36 74% 70%;
+        --secondary: 25 58% 34%;
+        --border: 214.3 31.8% 91.4%;
+        --input: 214.3 31.8% 91.4%;
+        --ring: 36 74% 70%;
+        --radius: 0.75rem;
+        --destructive: 0 84% 60%;
+        --muted: 210 40% 96%;
+        --muted-foreground: 215 16% 47%;
+      }
+    }
+
+    body {
+      @apply bg-slate-50 text-slate-900 antialiased;
+    }
+
+    .font-serif {
+      font-family: 'Lora', serif;
+    }

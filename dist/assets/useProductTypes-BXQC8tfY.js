@@ -1,0 +1,1 @@
+import{u as r,S as e,q as u}from"./index-DFQwL55i.js";import{f as s}from"./farmer.api-DPi2CtJA.js";function o(){return r({queryKey:u.productTypes.all,queryFn:s.getProductTypes,staleTime:e.productTypes,gcTime:e.productTypes})}export{o as u};
