@@ -1,116 +1,169 @@
-import { useNavigate } from "react-router-dom";
+import { useState, useMemo } from "react";
+import { motion } from "framer-motion";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { MarketTrendChart, useMarketTrendFilters } from "@/components/charts/MarketTrendChart";
-import { CardSkeleton, TableSkeleton } from "@/components/skeletons";
-import { PageState } from "@/components/common/PageState";
-import { Button } from "@/components/ui/button";
-
+import { useProductTypes } from "@/hooks/useProductTypes";
 import {
-  useFarmerMarketStats,
-  useFarmerMarketTrend,
-  useFarmerOverview,
-  useFarmerRecentSales,
+  useFarmerBusinessOverview,
+  useMarketplaceOverview,
+  useMarketActivityData,
+  useMarketTrendLive,
+  useMarketplaceHealth,
 } from "@/features/farmer/hooks/useFarmer";
-import { formatDate, formatEtb } from "@/lib/utils";
-import { BarChart3, Package, DollarSign, ShoppingCart } from "lucide-react";
+import { useMarketSocket } from "@/features/farmer/hooks/useMarketSocket";
+
+import { ProductSelector } from "@/features/farmer/components/dashboard/ProductSelector";
+import { BusinessPerformance } from "@/features/farmer/components/dashboard/BusinessPerformance";
+import { LiveMarketPrice } from "@/features/farmer/components/dashboard/LiveMarketPrice";
+import { MarketOverviewSection } from "@/features/farmer/components/dashboard/MarketOverviewSection";
+import { MarketActivitySection } from "@/features/farmer/components/dashboard/MarketActivitySection";
+import { MarketplaceHealthSection } from "@/features/farmer/components/dashboard/MarketplaceHealthSection";
+import { DashboardSkeleton } from "@/features/farmer/components/dashboard/DashboardSkeleton";
+
+const sectionVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: i * 0.08, duration: 0.45, ease: "easeOut" },
+  }),
+};
 
 export default function FarmerDashboardPage() {
-  const navigate = useNavigate();
-  const { productTypeId, period, setProductTypeId, setPeriod } = useMarketTrendFilters("today");
+  // ── Product selection state ──
+  const { data: productTypes, isLoading: typesLoading } = useProductTypes();
+  const [selectedProductTypeId, setSelectedProductTypeId] = useState<string>("");
 
-  const overview = useFarmerOverview();
-  const trend = useFarmerMarketTrend(productTypeId, period);
-  const stats = useFarmerMarketStats(productTypeId);
-  const recentSales = useFarmerRecentSales();
+  // Resolve default product type
+  const productTypeId = selectedProductTypeId || productTypes?.[0]?.id || "";
 
-  const statCards = overview.data
-    ? [
-        { label: "Total Revenue", value: formatEtb(Number(overview.data.totalRevenue)), icon: DollarSign, color: "bg-green-500" },
-        { label: "Total Orders", value: overview.data.totalOrders.toString(), icon: ShoppingCart, color: "bg-blue-500" },
-        { label: "Total Products", value: overview.data.totalProducts.toString(), icon: Package, color: "bg-primary" },
-        { label: "Active Listings", value: overview.data.activeListings.toString(), icon: BarChart3, color: "bg-amber-500" },
-      ]
-    : [];
+  // ── Data hooks ──
+  // Business overview is NOT product-specific — fetched once
+  const businessOverview = useFarmerBusinessOverview();
+
+  // Product-specific queries — refetch when productTypeId changes
+  const marketOverview = useMarketplaceOverview(productTypeId);
+  const marketActivity = useMarketActivityData(productTypeId);
+  const marketTrend = useMarketTrendLive(productTypeId);
+  const marketHealth = useMarketplaceHealth(productTypeId);
+
+  // Memoize initial points to avoid re-creating the array on every render
+  const initialPoints = useMemo(
+    () => marketTrend.data?.points ?? [],
+    [marketTrend.data]
+  );
+
+  // ── WebSocket ──
+  const { currentPrice, lastUpdated, priceHistory, isConnected } =
+    useMarketSocket({
+      productTypeId,
+      initialPoints,
+    });
+
+  // ── Handlers ──
+  const handleProductChange = (newId: string) => {
+    setSelectedProductTypeId(newId);
+  };
+
+  // Show full skeleton while product types are loading
+  if (typesLoading) {
+    return (
+      <DashboardLayout role="farmer">
+        <DashboardSkeleton />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout role="farmer">
       <div className="space-y-8">
-        <div className="flex items-end justify-between">
+        {/* ── Header + Product Selector ── */}
+        <motion.div
+          className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+        >
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Farmer Dashboard</h1>
-            <p className="text-slate-500">Track market prices and manage your harvest.</p>
+            <h1 className="text-2xl font-bold text-slate-900">
+              Dashboard
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Your business performance and live market intelligence
+            </p>
           </div>
-          <Button onClick={() => navigate("/farmer/products/add")}>Add Listing</Button>
-        </div>
+          <ProductSelector
+            value={productTypeId}
+            onChange={handleProductChange}
+          />
+        </motion.div>
 
-        {overview.isLoading ? (
-          <CardSkeleton count={4} />
-        ) : overview.isError ? (
-          <PageState type="error" onRetry={() => overview.refetch()} />
-        ) : (
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-            {statCards.map((stat) => (
-              <div key={stat.label} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-xl ${stat.color} text-white`}>
-                  <stat.icon size={24} />
-                </div>
-                <p className="text-sm font-medium text-slate-500">{stat.label}</p>
-                <p className="text-2xl font-bold text-slate-900">{stat.value}</p>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* ── Section 1: Business Performance ── */}
+        <motion.div
+          custom={0}
+          variants={sectionVariants}
+          initial="hidden"
+          animate="visible"
+        >
+          <BusinessPerformance
+            data={businessOverview.data}
+            isLoading={businessOverview.isLoading}
+            isError={businessOverview.isError}
+            onRetry={() => businessOverview.refetch()}
+          />
+        </motion.div>
 
-        <MarketTrendChart
-          trendData={trend.data}
-          stats={stats.data}
-          isLoading={trend.isLoading || stats.isLoading}
-          isError={trend.isError}
-          onRetry={() => trend.refetch()}
-          productTypeId={productTypeId}
-          period={period}
-          onProductTypeChange={setProductTypeId}
-          onPeriodChange={setPeriod}
-        />
+        {/* ── Section 2: Live Market Price (Hero) ── */}
+        <motion.div
+          custom={1}
+          variants={sectionVariants}
+          initial="hidden"
+          animate="visible"
+        >
+          <LiveMarketPrice
+            currentPrice={currentPrice}
+            lastUpdated={lastUpdated}
+            priceHistory={priceHistory}
+            isConnected={isConnected}
+            isLoading={marketTrend.isLoading}
+          />
+        </motion.div>
 
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 p-6">
-            <h3 className="font-bold text-slate-900">Recent Sales</h3>
-            <Button variant="ghost" size="sm" onClick={() => navigate("/farmer/orders")}>View All</Button>
-          </div>
-          {recentSales.isLoading ? (
-            <TableSkeleton rows={4} cols={5} />
-          ) : recentSales.isError ? (
-            <PageState type="error" onRetry={() => recentSales.refetch()} />
-          ) : !recentSales.data?.length ? (
-            <PageState type="empty" title="No recent sales" />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                  <tr>
-                    <th className="px-6 py-4 font-bold">Customer</th>
-                    <th className="px-6 py-4 font-bold">Product</th>
-                    <th className="px-6 py-4 font-bold">quantity</th>
-                    <th className="px-6 py-4 font-bold">totalPrice</th>
-                    <th className="px-6 py-4 font-bold">createdAt</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {recentSales.data.map((order) => (
-                    <tr key={order.id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4 text-sm">{order.customer.fullName}</td>
-                      <td className="px-6 py-4 text-sm">{order.listing.productType.name}</td>
-                      <td className="px-6 py-4 text-sm">{Number(order.quantity)}</td>
-                      <td className="px-6 py-4 text-sm font-bold">{formatEtb(Number(order.totalPrice))}</td>
-                      <td className="px-6 py-4 text-sm text-slate-500">{formatDate(order.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        {/* ── Sections 3 + 4: Market Overview + Activity (side by side) ── */}
+        <motion.div
+          custom={2}
+          variants={sectionVariants}
+          initial="hidden"
+          animate="visible"
+          className="grid grid-cols-1 gap-6 lg:grid-cols-2"
+        >
+          <MarketOverviewSection
+            data={marketOverview.data}
+            isLoading={marketOverview.isLoading}
+            isError={marketOverview.isError}
+            onRetry={() => marketOverview.refetch()}
+          />
+          <MarketActivitySection
+            data={marketActivity.data}
+            isLoading={marketActivity.isLoading}
+            isError={marketActivity.isError}
+            onRetry={() => marketActivity.refetch()}
+          />
+        </motion.div>
+
+        {/* ── Section 5: Marketplace Health ── */}
+        <motion.div
+          custom={3}
+          variants={sectionVariants}
+          initial="hidden"
+          animate="visible"
+        >
+          <MarketplaceHealthSection
+            data={marketHealth.data}
+            isLoading={marketHealth.isLoading}
+            isError={marketHealth.isError}
+            onRetry={() => marketHealth.refetch()}
+          />
+        </motion.div>
       </div>
     </DashboardLayout>
   );
